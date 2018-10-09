@@ -1,14 +1,20 @@
 #include <SoftwareSerial.h>
+#include <SPI.h>
  
-SoftwareSerial rs232(11, 12); //232_TX,232_RX
+SoftwareSerial rs232(2, 3); //232_TX,232_RX
 
 const int inputButtons[] = {A0, A1, A2};
-const int ledPins[] = {8, 9, 10};
+const int ledPins[] = {4, 5, 6};
 
 int readButton = -1;
 float readVolume = 0.0;
+int readGain = 1;
 
 int currentSource = 0;
+
+int currentGain = 1;
+int mutePin = 9;
+int slaveSelectPin = 10;
 
 void setup() {
   // Setup serial communication for debugging.
@@ -16,6 +22,16 @@ void setup() {
   
   // Setup RS232.
   rs232.begin(9600);
+  
+  // Setup SPI.
+  pinMode(slaveSelectPin, OUTPUT);
+  pinMode(mutePin, OUTPUT);
+  SPI.begin();
+  
+  // Setup pins for input from buttons.
+  for (int i = 0; i < 3; i++) {
+    pinMode(inputButtons[i], INPUT);
+  }
   
   // Setup pins for output to LEDs.
   for (int i = 0; i < 3; i++) {
@@ -25,6 +41,8 @@ void setup() {
   // Reset.
   setCurrentLED(currentSource);
   setCurrentVideo(currentSource);
+  setVolume(1);
+  digitalWrite(mutePin, HIGH);
 }
 
 /**
@@ -35,10 +53,10 @@ int readButtons() {
   
   // Iterate over all buttons.
   for (int i = 0; i < 3; i++) {
-    buttonState = analogRead(inputButtons[i]);
+    buttonState = digitalRead(inputButtons[i]);
     
     // Check if button is pressed.
-    if (buttonState > 1000) {
+    if (buttonState == HIGH) {
       // Return index of button.
       return i;
     }
@@ -77,20 +95,36 @@ void setCurrentVideo(int currentVideo) {
 }
 
 /**
+ * Set volume on PGA2310 through SPI.
+*/
+void setVolume(int gain) {
+  digitalWrite(slaveSelectPin, LOW);
+  SPI.transfer(gain);
+  SPI.transfer(gain);
+  digitalWrite(slaveSelectPin, HIGH);
+}
+
+/**
  * Read voltage of analog input knob.
 */
 float readVolumeVoltage() {
-  // Read the value from analog pin A0.
+  // Read the value from analog pin A5.
   int sensorValue = analogRead(A5);
   
-  // Convert and return analog sensor reading (0-1023) to a voltage (0-5V).
-  return sensorValue * (5.0 / 1023.0);
+  // Return analog sensor reading (0-1023).
+  return sensorValue;
 }
 
 void loop() {
-  // Read volume knob voltage.
+  // Read volume knob voltage and map to 8 bit values.
   readVolume = readVolumeVoltage();
-  Serial.println(readVolume);
+  readGain = map(readVolume, 0, 1023, 1, 255);
+  
+  // Only set volume if gain has changed.
+  if (readGain != currentGain) {
+    currentGain = readGain;
+    setVolume(currentGain);
+  }
   
   // Read buttons.
   readButton = readButtons();
